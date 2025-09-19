@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-multipart
+gTTS
+speechrecognition
+supabase
+python-dotenv
+aiofiles
+requests
+pydub
+httpx
+pymongo
+openai-whisper
+imageio-ffmpeg
