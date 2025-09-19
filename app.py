@@ -36,11 +36,14 @@ interviews_collection = mongo_db["interviews"]
 # App Config
 STATIC_DIR = Path("static")
 STATIC_DIR.mkdir(exist_ok=True)
-app = FastAPI(title="Interview Voice Bot Backend")
 
+# ✅ Add root_path="/api" so all routes are under /api/
+app = FastAPI(title="Interview Voice Bot Backend", root_path="/api")
+
+# ✅ Configure CORS properly
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "https://mohit-7t2w.onrender.com"],  # frontend origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -118,7 +121,7 @@ async def start_interview(req: StartRequest):
         "message": "Interview started",
         "candidate_id": candidate_id,
         "total_questions": len(QUESTIONS),
-        "next_question_url": f"/question/{candidate_id}"
+        "next_question_url": f"/api/question/{candidate_id}"
     }
 
 @app.get("/question/{candidate_id}")
@@ -235,7 +238,7 @@ async def submit_answer(candidate_id: str, question_index: int, file: UploadFile
     return {
         "answer_text": text_answer,
         "status": status,
-        "next_question_url": f"/question/{candidate_id}"
+        "next_question_url": f"/api/question/{candidate_id}"
     }
 
 @app.get("/finish_interview/{candidate_id}")
