@@ -66,13 +66,9 @@ app = FastAPI(title="Interview Voice Bot Backend")
 # ------------------------------
 # CORS
 # ------------------------------
-# ✅ Update this with your frontend URLs
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",                  # React dev
-        "https://your-frontend-domain.com"       # Replace with hosted frontend
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -86,7 +82,7 @@ def get_whisper_model():
     global whisper_model
     if whisper_model is None:
         print("⏳ Loading Whisper model (tiny)...")
-        whisper_model = whisper.load_model("tiny", device="cpu")
+        whisper_model = whisper.load_model("tiny", device="cpu")  # lightweight
         print("✅ Whisper model ready")
     return whisper_model
 
@@ -105,7 +101,7 @@ QUESTIONS = [
 class StartRequest(BaseModel):
     name: str | None = None
     email: str | None = None
-    candidate_id: str | None = None
+    candidate_id: str | None = None   # ✅ optional field
 
 # ------------------------------
 # Helper: Convert WebM → WAV
@@ -124,7 +120,7 @@ def convert_to_wav(input_path: str) -> str:
     return output_path
 
 # ------------------------------
-# Routes
+# Routes (all under /api)
 # ------------------------------
 @app.get("/")
 def root():
@@ -132,9 +128,11 @@ def root():
 
 @app.post("/api/start_interview")
 async def start_interview(req: StartRequest):
+    # ✅ If candidate_id provided, use it
     if req.candidate_id:
         candidate_id = req.candidate_id
     else:
+        # otherwise, check by email or generate new
         existing = supabase.table("candidates").select("*").eq("email", req.email).execute()
         if existing.data:
             candidate_id = existing.data[0]["candidate_id"]
@@ -154,6 +152,7 @@ async def start_interview(req: StartRequest):
             })
             print(f"✅ Candidate saved in Mongo: {candidate_id}, {req.name}, {req.email}")
 
+    # Create session
     supabase.table("sessions").insert({
         "candidate_id": candidate_id,
         "q_index": 0
