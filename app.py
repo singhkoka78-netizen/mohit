@@ -82,7 +82,7 @@ def get_whisper_model():
     global whisper_model
     if whisper_model is None:
         print("⏳ Loading Whisper model (tiny)...")
-        whisper_model = whisper.load_model("tiny", device="cpu")  # lighter for Render
+        whisper_model = whisper.load_model("tiny", device="cpu")  # lightweight
         print("✅ Whisper model ready")
     return whisper_model
 
@@ -101,7 +101,7 @@ QUESTIONS = [
 class StartRequest(BaseModel):
     name: str | None = None
     email: str | None = None
-    candidate_id: str | None = None   # ✅ NEW (optional)
+    candidate_id: str | None = None   # ✅ optional field
 
 # ------------------------------
 # Helper: Convert WebM → WAV
@@ -120,7 +120,7 @@ def convert_to_wav(input_path: str) -> str:
     return output_path
 
 # ------------------------------
-# Routes (under /api)
+# Routes (all under /api)
 # ------------------------------
 @app.get("/")
 def root():
