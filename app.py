@@ -39,16 +39,11 @@ STATIC_DIR.mkdir(exist_ok=True)
 app = FastAPI(title="Interview Voice Bot Backend")
 
 # --------------------------
-# CORS Middleware
+# CORS Middleware (open for now)
 # --------------------------
-origins = [
-    "http://localhost:5173",  # React local dev
-    "https://mohit-1-qxrz.onrender.com",  # Optional deployed frontend
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,       # Or ["*"] to allow all origins
+    allow_origins=["*"],   # ✅ allow all origins (testing)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -156,8 +151,12 @@ async def start_interview(req: StartRequest):
         # Generate Welcome Message TTS
         welcome_text = f"Welcome {name}, let's begin your interview."
         welcome_filename = f"{candidate_id}_welcome.mp3"
-        welcome_filepath = text_to_speech(welcome_text, welcome_filename)
-        welcome_audio_url = upload_to_supabase(welcome_filepath, candidate_id, prefix="welcome")
+        try:
+            welcome_filepath = text_to_speech(welcome_text, welcome_filename)
+            welcome_audio_url = upload_to_supabase(welcome_filepath, candidate_id, prefix="welcome")
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(500, f"TTS or upload failed: {e}")
 
         return {
             "message": "Interview started",
@@ -187,8 +186,13 @@ async def get_question(candidate_id: str):
 
         question = QUESTIONS[q_index]
         filename = f"{candidate_id}_q{q_index}.mp3"
-        filepath = text_to_speech(question, filename)
-        audio_url = upload_to_supabase(filepath, candidate_id, prefix=f"bot_q_{q_index}")
+
+        try:
+            filepath = text_to_speech(question, filename)
+            audio_url = upload_to_supabase(filepath, candidate_id, prefix=f"bot_q_{q_index}")
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(500, f"TTS or upload failed: {e}")
 
         return {
             "done": False,
@@ -197,6 +201,7 @@ async def get_question(candidate_id: str):
             "audio_url": audio_url
         }
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, f"Failed to fetch question: {e}")
 
 # --------------------------
@@ -269,6 +274,7 @@ async def finish_interview(candidate_id: str):
         supabase.table("sessions").update({"status": "finished"}).eq("candidate_id", candidate_id).execute()
         return {"message": "Interview finished", "candidate_id": candidate_id, "summary_url": f"/get_answers/{candidate_id}"}
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, f"Failed to finish interview: {e}")
 
 # --------------------------
@@ -285,6 +291,7 @@ async def get_answers(candidate_id: str):
             "qa_supabase": supa_res.data
         }
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, f"Failed to fetch answers: {e}")
 
 # --------------------------
