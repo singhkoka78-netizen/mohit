@@ -38,10 +38,17 @@ STATIC_DIR = Path("static")
 STATIC_DIR.mkdir(exist_ok=True)
 app = FastAPI(title="Interview Voice Bot Backend")
 
-# cors
+# --------------------------
+# CORS Middleware
+# --------------------------
+origins = [
+    "http://localhost:5173",  # React local dev
+    "https://mohit-1-qxrz.onrender.com",  # Optional deployed frontend
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,       # Or ["*"] to allow all origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -118,48 +125,35 @@ async def start_interview(req: StartRequest):
         print("👉 /start_interview called with:", req.dict())
 
         email = req.email.strip().lower()
-        print(f"🔍 Looking up candidate: {email}")
         candidate_doc = candidatereg_collection.find_one({"email": email})
         if not candidate_doc:
-            print("❌ Candidate not found in Mongo")
             raise HTTPException(404, f"Candidate not found for email: {email}")
 
         candidate_id = str(candidate_doc["_id"])
         name = candidate_doc.get("name", "Candidate")
-        print(f"✅ Candidate found: {candidate_id}, {name}")
 
         # Supabase candidates
-        try:
-            existing = supabase.table("candidates").select("*").eq("candidate_id", candidate_id).execute()
-            if not existing.data:
-                supabase.table("candidates").insert({
-                    "candidate_id": candidate_id,
-                    "name": name,
-                    "email": email
-                }).execute()
-        except Exception as e:
-            print("❌ Supabase error:", str(e))
-            traceback.print_exc()
-            raise
+        existing = supabase.table("candidates").select("*").eq("candidate_id", candidate_id).execute()
+        if not existing.data:
+            supabase.table("candidates").insert({
+                "candidate_id": candidate_id,
+                "name": name,
+                "email": email
+            }).execute()
 
         # Mongo interviews
         if not interviews_collection.find_one({"candidate_id": candidate_id}):
             interviews_collection.insert_one({"candidate_id": candidate_id, "qa": [], "interview_finished": False})
 
         # Reset Supabase session
-        try:
-            supabase.table("sessions").delete().eq("candidate_id", candidate_id).execute()
-            supabase.table("sessions").insert({
-                "candidate_id": candidate_id,
-                "q_index": 0,
-                "status": "active"
-            }).execute()
-        except Exception as e:
-            print("❌ Supabase session error:", str(e))
-            traceback.print_exc()
-            raise
+        supabase.table("sessions").delete().eq("candidate_id", candidate_id).execute()
+        supabase.table("sessions").insert({
+            "candidate_id": candidate_id,
+            "q_index": 0,
+            "status": "active"
+        }).execute()
 
-        # 👇 Generate Welcome Message TTS
+        # Generate Welcome Message TTS
         welcome_text = f"Welcome {name}, let's begin your interview."
         welcome_filename = f"{candidate_id}_welcome.mp3"
         welcome_filepath = text_to_speech(welcome_text, welcome_filename)
@@ -174,7 +168,6 @@ async def start_interview(req: StartRequest):
         }
 
     except Exception as e:
-        print("💥 ERROR in /start_interview:", str(e))
         traceback.print_exc()
         raise HTTPException(500, f"Failed to start interview: {e}")
 
@@ -213,13 +206,11 @@ async def get_question(candidate_id: str):
 async def submit_answer(candidate_id: str, currentQuestionIndex: int, file: UploadFile = File(...)):
     tmp_input = tmp_wav_path = None
     try:
-        # check session
         session_res = supabase.table("sessions").select("*").eq("candidate_id", candidate_id).execute()
         if not session_res.data:
             raise HTTPException(404, "Session not found")
         session = session_res.data[0]
 
-        # temp audio
         tmp_input = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1])
         tmp_input.write(await file.read())
         tmp_input.close()
@@ -240,7 +231,6 @@ async def submit_answer(candidate_id: str, currentQuestionIndex: int, file: Uplo
         except Exception as e:
             print("Whisper error:", e)
 
-        # Upload audio to Supabase
         audio_url = upload_to_supabase(tmp_input.name, candidate_id, prefix=f"answer_{currentQuestionIndex}")
 
         supabase.table("interviews").insert({
@@ -251,13 +241,11 @@ async def submit_answer(candidate_id: str, currentQuestionIndex: int, file: Uplo
             "answer_audio_url": audio_url
         }).execute()
 
-        # save in Mongo 
         interviews_collection.update_one(
             {"candidate_id": candidate_id},
-            {"$push": {"qa": [{"question": QUESTIONS[currentQuestionIndex], "answer": text_answer, "audio_url": audio_url}]} }
+            {"$push": {"qa": [{"question": QUESTIONS[currentQuestionIndex], "answer": text_answer, "audio_url": audio_url}]}}
         )
 
-        # update session index
         supabase.table("sessions").update({"q_index": session["q_index"] + 1}).eq("candidate_id", candidate_id).execute()
 
         return {"answer_text": text_answer, "status": status, "next_question_url": f"/question/{candidate_id}"}
@@ -274,12 +262,10 @@ async def submit_answer(candidate_id: str, currentQuestionIndex: int, file: Uplo
 @app.post("/finish_interview/{candidate_id}")
 async def finish_interview(candidate_id: str):
     try:
-        # update Mongo
         interviews_collection.update_one(
             {"candidate_id": candidate_id},
             {"$set": {"interview_finished": True}}
         )
-        # supabase session updation
         supabase.table("sessions").update({"status": "finished"}).eq("candidate_id", candidate_id).execute()
         return {"message": "Interview finished", "candidate_id": candidate_id, "summary_url": f"/get_answers/{candidate_id}"}
     except Exception as e:
@@ -301,5 +287,7 @@ async def get_answers(candidate_id: str):
     except Exception as e:
         raise HTTPException(500, f"Failed to fetch answers: {e}")
 
+# --------------------------
 # Static Files
+# --------------------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
