@@ -109,6 +109,9 @@ def upload_to_supabase(file_path: str, candidate_id: str, prefix="bot_q") -> str
                 raise
     return f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{path_in_bucket}"
 
+# --------------------------
+# Start Interview (with Welcome)
+# --------------------------
 @app.post("/start_interview")
 async def start_interview(req: StartRequest):
     try:
@@ -122,20 +125,18 @@ async def start_interview(req: StartRequest):
             raise HTTPException(404, f"Candidate not found for email: {email}")
 
         candidate_id = str(candidate_doc["_id"])
-        name = candidate_doc.get("name")
+        name = candidate_doc.get("name", "Candidate")
         print(f"✅ Candidate found: {candidate_id}, {name}")
 
         # Supabase candidates
         try:
             existing = supabase.table("candidates").select("*").eq("candidate_id", candidate_id).execute()
-            print("📦 Supabase existing candidate check:", existing.data)
             if not existing.data:
                 supabase.table("candidates").insert({
                     "candidate_id": candidate_id,
                     "name": name,
                     "email": email
                 }).execute()
-                print("✅ Candidate inserted into Supabase")
         except Exception as e:
             print("❌ Supabase error:", str(e))
             traceback.print_exc()
@@ -144,7 +145,6 @@ async def start_interview(req: StartRequest):
         # Mongo interviews
         if not interviews_collection.find_one({"candidate_id": candidate_id}):
             interviews_collection.insert_one({"candidate_id": candidate_id, "qa": [], "interview_finished": False})
-            print("✅ Interview document created in Mongo")
 
         # Reset Supabase session
         try:
@@ -154,15 +154,22 @@ async def start_interview(req: StartRequest):
                 "q_index": 0,
                 "status": "active"
             }).execute()
-            print("✅ Session reset in Supabase")
         except Exception as e:
             print("❌ Supabase session error:", str(e))
             traceback.print_exc()
             raise
 
+        # 👇 Generate Welcome Message TTS
+        welcome_text = f"Welcome {name}, let's begin your interview."
+        welcome_filename = f"{candidate_id}_welcome.mp3"
+        welcome_filepath = text_to_speech(welcome_text, welcome_filename)
+        welcome_audio_url = upload_to_supabase(welcome_filepath, candidate_id, prefix="welcome")
+
         return {
             "message": "Interview started",
             "candidate_id": candidate_id,
+            "candidate_name": name,
+            "welcome_audio_url": welcome_audio_url,
             "next_question_url": f"/question/{candidate_id}"
         }
 
@@ -171,6 +178,9 @@ async def start_interview(req: StartRequest):
         traceback.print_exc()
         raise HTTPException(500, f"Failed to start interview: {e}")
 
+# --------------------------
+# Get Question
+# --------------------------
 @app.get("/question/{candidate_id}")
 async def get_question(candidate_id: str):
     try:
@@ -196,6 +206,9 @@ async def get_question(candidate_id: str):
     except Exception as e:
         raise HTTPException(500, f"Failed to fetch question: {e}")
 
+# --------------------------
+# Submit Answer
+# --------------------------
 @app.post("/submit_answer/{candidate_id}/{currentQuestionIndex}")
 async def submit_answer(candidate_id: str, currentQuestionIndex: int, file: UploadFile = File(...)):
     tmp_input = tmp_wav_path = None
@@ -230,7 +243,6 @@ async def submit_answer(candidate_id: str, currentQuestionIndex: int, file: Uplo
         # Upload audio to Supabase
         audio_url = upload_to_supabase(tmp_input.name, candidate_id, prefix=f"answer_{currentQuestionIndex}")
 
-
         supabase.table("interviews").insert({
             "candidate_id": candidate_id,
             "question": QUESTIONS[currentQuestionIndex],
@@ -242,7 +254,7 @@ async def submit_answer(candidate_id: str, currentQuestionIndex: int, file: Uplo
         # save in Mongo 
         interviews_collection.update_one(
             {"candidate_id": candidate_id},
-            {"$push": {"qa": [{"question": QUESTIONS[currentQuestionIndex], "answer": text_answer, "audio_url": audio_url}]}}
+            {"$push": {"qa": [{"question": QUESTIONS[currentQuestionIndex], "answer": text_answer, "audio_url": audio_url}]} }
         )
 
         # update session index
@@ -256,6 +268,9 @@ async def submit_answer(candidate_id: str, currentQuestionIndex: int, file: Uplo
         if tmp_wav_path and os.path.exists(tmp_wav_path) and tmp_wav_path != tmp_input.name:
             os.remove(tmp_wav_path)
 
+# --------------------------
+# Finish Interview
+# --------------------------
 @app.post("/finish_interview/{candidate_id}")
 async def finish_interview(candidate_id: str):
     try:
@@ -270,6 +285,9 @@ async def finish_interview(candidate_id: str):
     except Exception as e:
         raise HTTPException(500, f"Failed to finish interview: {e}")
 
+# --------------------------
+# Get Answers
+# --------------------------
 @app.get("/get_answers/{candidate_id}")
 async def get_answers(candidate_id: str):
     try:
@@ -283,4 +301,5 @@ async def get_answers(candidate_id: str):
     except Exception as e:
         raise HTTPException(500, f"Failed to fetch answers: {e}")
 
+# Static Files
 app.mount("/static", StaticFiles(directory="static"), name="static")
