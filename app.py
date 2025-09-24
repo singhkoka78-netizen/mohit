@@ -54,7 +54,10 @@ app = FastAPI(title="Interview Voice Bot Backend")
 # -------------------- CORS --------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow all origins for testing
+    allow_origins=[
+        "http://localhost:5173",   # local dev
+        "https://mohit-1-qxrz.onrender.com"  # replace with deployed domain
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -98,6 +101,7 @@ def text_to_speech(text: str, filename: str) -> str:
     return str(filepath)
 
 def upload_to_supabase(file_path: str, candidate_id: str, prefix="bot_q") -> str:
+    """Upload file to Supabase bucket and return public URL"""
     path_in_bucket = f"{candidate_id}/{prefix}_{uuid.uuid4().hex}{os.path.splitext(file_path)[1]}"
     with open(file_path, "rb") as f:
         try:
@@ -198,12 +202,14 @@ async def submit_answer(candidate_id: str, currentQuestionIndex: int, file: Uplo
             raise HTTPException(404, "Session not found")
         session = session_res.data[0]
 
-        tmp_input = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1])
+        # ✅ Ensure file has a name
+        ext = os.path.splitext(file.filename or "audio.webm")[1]
+        tmp_input = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
         tmp_input.write(await file.read())
         tmp_input.close()
         tmp_wav_path = convert_to_wav(tmp_input.name)
 
-        # Transcription
+        # ✅ Transcription
         text_answer = "(Transcription failed)"
         try:
             audio = whisper.load_audio(tmp_wav_path)
@@ -229,7 +235,8 @@ async def submit_answer(candidate_id: str, currentQuestionIndex: int, file: Uplo
         # Save to Mongo
         interviews_collection.update_one(
             {"candidate_id": candidate_id},
-            {"$push": {"qa": [{"question": QUESTIONS[currentQuestionIndex], "answer": text_answer, "audio_url": audio_url}]}}
+            {"$push": {"qa": [{"question": QUESTIONS[currentQuestionIndex], "answer": text_answer, "audio_url": audio_url}]}},
+            upsert=True
         )
 
         # Update session
