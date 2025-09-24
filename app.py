@@ -550,3 +550,4 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Interview Voice Bot Backend running"}
+
